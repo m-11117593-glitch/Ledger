@@ -29,8 +29,9 @@ def parse_expenses_from_text(text: str) -> list[dict]:
     """
     Parse a free-text essay and extract potential expense transactions.
 
-    Finds all dollar amounts and captures surrounding words as descriptions.
-    Handles multiple amounts per sentence by assigning surrounding text to each.
+    Finds all dollar amounts and uses the text immediately following each
+    amount (until the next amount or sentence end) as the description.
+    Leading prepositions and articles are stripped for cleaner descriptions.
     """
     if not text or not text.strip():
         return []
@@ -42,8 +43,19 @@ def parse_expenses_from_text(text: str) -> list[dict]:
         r'\$?(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2}|\d{1,3}(?:,\d{3})*|\d+)'
     )
 
+    # Words to strip from the beginning of descriptions
     strip_prefixes = re.compile(
         r'^(I\s+)?(spent|paid|cost|was|for|at|on|in|of|to|bought|purchased)\s+',
+        re.IGNORECASE
+    )
+
+    strip_leading_prepositions = re.compile(
+        r'^(on|for|at|in|to|of|a|an|the|and|with)\s+',
+        re.IGNORECASE
+    )
+
+    strip_trailing_conjunctions = re.compile(
+        r',?\s+(and|with|plus)\s*$',
         re.IGNORECASE
     )
 
@@ -56,31 +68,31 @@ def parse_expenses_from_text(text: str) -> list[dict]:
         if not matches:
             continue
 
-        prev_end = 0
         for i, match in enumerate(matches):
             amount_str = match.group(1)
             try:
                 amount = float(amount_str.replace(',', ''))
             except ValueError:
-                prev_end = match.end()
                 continue
 
             if amount <= 0 or amount > 1_000_000:
-                prev_end = match.end()
                 continue
 
-            # Text before this amount (from prev match end to this match start)
-            before = sentence[prev_end:match.start()].strip()
-
-            # Text after this amount (up to next match or end of sentence)
+            # Text AFTER this amount (until next amount or sentence end)
+            after_start = match.end()
             after_end = matches[i + 1].start() if i + 1 < len(matches) else len(sentence)
-            after = sentence[match.end():after_end].strip()
+            desc = sentence[after_start:after_end].strip()
 
-            desc = ' '.join(filter(None, [before, after]))
+            # If no text after, try text BEFORE this amount
+            if not desc:
+                before_start = matches[i - 1].end() if i > 0 else 0
+                desc = sentence[before_start:match.start()].strip()
 
             # Clean up description
             desc = re.sub(r'[,:;–—\-]+$', '', desc).strip()
             desc = strip_prefixes.sub('', desc).strip()
+            desc = strip_leading_prepositions.sub('', desc).strip()
+            desc = strip_trailing_conjunctions.sub('', desc).strip()
             desc = re.sub(r'\b(dollars?|usd|cad|eur|gbp)\b$', '', desc, flags=re.IGNORECASE).strip()
 
             if not desc:
@@ -90,8 +102,6 @@ def parse_expenses_from_text(text: str) -> list[dict]:
                 "description": desc[:120],
                 "amount": round(amount, 2),
             })
-
-            prev_end = match.end()
 
     return transactions
 
