@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, date
+import re
 
 import database
 import model_utils
@@ -22,6 +23,77 @@ def clear_query_params():
     except Exception:
         for key in list(st.query_params.keys()):
             del st.query_params[key]
+
+
+def parse_expenses_from_text(text: str) -> list[dict]:
+    """
+    Parse a free-text essay and extract potential expense transactions.
+
+    Finds all dollar amounts and captures surrounding words as descriptions.
+    Handles multiple amounts per sentence by assigning surrounding text to each.
+    """
+    if not text or not text.strip():
+        return []
+
+    sentences = re.split(r'[.!?\n]+', text)
+    transactions = []
+
+    amount_pattern = re.compile(
+        r'\$?(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2}|\d{1,3}(?:,\d{3})*|\d+)'
+    )
+
+    strip_prefixes = re.compile(
+        r'^(I\s+)?(spent|paid|cost|was|for|at|on|in|of|to|bought|purchased)\s+',
+        re.IGNORECASE
+    )
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        matches = list(amount_pattern.finditer(sentence))
+        if not matches:
+            continue
+
+        prev_end = 0
+        for i, match in enumerate(matches):
+            amount_str = match.group(1)
+            try:
+                amount = float(amount_str.replace(',', ''))
+            except ValueError:
+                prev_end = match.end()
+                continue
+
+            if amount <= 0 or amount > 1_000_000:
+                prev_end = match.end()
+                continue
+
+            # Text before this amount (from prev match end to this match start)
+            before = sentence[prev_end:match.start()].strip()
+
+            # Text after this amount (up to next match or end of sentence)
+            after_end = matches[i + 1].start() if i + 1 < len(matches) else len(sentence)
+            after = sentence[match.end():after_end].strip()
+
+            desc = ' '.join(filter(None, [before, after]))
+
+            # Clean up description
+            desc = re.sub(r'[,:;–—\-]+$', '', desc).strip()
+            desc = strip_prefixes.sub('', desc).strip()
+            desc = re.sub(r'\b(dollars?|usd|cad|eur|gbp)\b$', '', desc, flags=re.IGNORECASE).strip()
+
+            if not desc:
+                desc = "Imported from text"
+
+            transactions.append({
+                "description": desc[:120],
+                "amount": round(amount, 2),
+            })
+
+            prev_end = match.end()
+
+    return transactions
 
 
 # ----------------- Page Configuration -----------------
@@ -327,6 +399,86 @@ with col_form:
                 else:
                     st.success(f"Recorded -${amount:,.2f} under {chosen_cat}")
                 st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ----------------- Bulk Import from Text -----------------
+    st.markdown('<div class="shadcn-section-header">Bulk Import from Text</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="font-size: 12px; color: #a1a1aa; margin-bottom: 10px;">Paste a long essay or paragraph describing your spending. '
+        'I will extract every dollar amount, guess the description, and auto-categorize each transaction.</p>',
+        unsafe_allow_html=True
+    )
+
+    bulk_text = st.text_area(
+        "Paste your spending story",
+        placeholder="e.g. I spent $4.50 on coffee this morning, then $12.00 for lunch at the deli. "
+                    "Later I paid $85.00 for my electric bill and $3.75 for a snack.",
+        height=140,
+        key="bulk_text_input",
+        label_visibility="collapsed"
+    )
+
+    c_parse, c_import = st.columns([1, 1])
+    with c_parse:
+        parse_btn = st.button("Parse Text", use_container_width=True)
+    with c_import:
+        import_btn = st.button("Import All Parsed", use_container_width=True, type="primary")
+
+    if parse_btn and bulk_text.strip():
+        parsed = parse_expenses_from_text(bulk_text)
+        st.session_state.bulk_parsed = parsed
+
+    if "bulk_parsed" in st.session_state and st.session_state.bulk_parsed:
+        parsed = st.session_state.bulk_parsed
+        st.markdown(f"**Found {len(parsed)} transaction(s):**")
+
+        # Show each parsed transaction with category prediction and checkbox
+        selected_indices = []
+        for i, txn in enumerate(parsed):
+            pred = predict_category(txn["description"])
+            suggested_cat = pred["predicted_category"] if pred["success"] else "Shopping & Retail"
+            conf = pred["confidence"] if pred["success"] else 0.0
+
+            cat_index = 0
+            if suggested_cat in all_categories:
+                cat_index = all_categories.index(suggested_cat)
+
+            cols = st.columns([0.05, 0.35, 0.2, 0.2, 0.2])
+            with cols[0]:
+                checked = st.checkbox("", key=f"bulk_select_{i}")
+                if checked:
+                    selected_indices.append(i)
+            with cols[1]:
+                st.markdown(f"**{txn['description']}**")
+            with cols[2]:
+                st.markdown(f"${txn['amount']:,.2f}")
+            with cols[3]:
+                cat_choice = st.selectbox(
+                    "Category",
+                    options=all_categories,
+                    index=cat_index,
+                    key=f"bulk_cat_{i}",
+                    label_visibility="collapsed"
+                )
+                st.session_state[f"bulk_cat_{i}"] = cat_choice
+            with cols[4]:
+                conf_str = f"{int(conf * 100)}%" if conf else "—"
+                st.markdown(f"<div style='text-align: right; font-size: 11px; color: #a1a1aa;'>{conf_str}</div>", unsafe_allow_html=True)
+
+        if import_btn and selected_indices:
+            date_str = date.today().strftime("%Y-%m-%d")
+            imported = 0
+            for i in selected_indices:
+                txn = parsed[i]
+                cat = st.session_state.get(f"bulk_cat_{i}", "Shopping & Retail")
+                add_expense(date_str, txn["description"], txn["amount"], cat, user_email=current_user)
+                imported += 1
+            st.success(f"Imported {imported} transaction(s) successfully!")
+            del st.session_state.bulk_parsed
+            st.rerun()
+        elif import_btn and not selected_indices:
+            st.warning("Please select at least one transaction to import.")
 
 # ========== Right Column: Visualizations ==========
 with col_charts:
