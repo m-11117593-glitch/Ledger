@@ -1,9 +1,10 @@
-# Emerald Forest Finance 🌲💳
+# Ledger 💳
 
-An autonomous personal finance and expense tracking web application with machine learning categorization, persistent SQLite storage, and executive wealth analytics.
+A modern expense tracking and cash flow intelligence application with machine learning categorization, persistent SQLite storage, and shadcn/ui analytics.
 
 ## Features
 - **Machine Learning Auto-Categorization**: Powered by a Scikit-Learn TF-IDF + Logistic Regression pipeline (`model.joblib`) trained on 68,000+ real-world transactions across 17 categories.
+- **Model Checkpoint**: Active pipeline loaded from `model.joblib`.
 - **Smart Category Override**: AI auto-detects merchant category with confidence percentage, with 1-click manual dropdown override before recording.
 - **Zero Data Loss Persistence**: Backed by a local SQLite database (`expenses.db`), preserving all transactions across page refreshes and browser restarts.
 - **Concentration Spotlight & Analytics**:
