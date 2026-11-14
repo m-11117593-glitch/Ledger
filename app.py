@@ -461,7 +461,6 @@ with col_form:
                     key=f"bulk_cat_{i}",
                     label_visibility="collapsed"
                 )
-                st.session_state[f"bulk_cat_{i}"] = cat_choice
             with cols[4]:
                 conf_str = f"{int(conf * 100)}%" if conf else "—"
                 st.markdown(f"<div style='text-align: right; font-size: 11px; color: #a1a1aa;'>{conf_str}</div>", unsafe_allow_html=True)
