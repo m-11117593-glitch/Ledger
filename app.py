@@ -3,23 +3,26 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, date
-import importlib
 
 import database
 import model_utils
 import styles
 import auth_utils
 
-# Ensure helper modules are hot-reloaded if modified
-importlib.reload(database)
-importlib.reload(model_utils)
-importlib.reload(styles)
-importlib.reload(auth_utils)
-
 from database import init_db, add_expense, delete_expense, get_expenses, get_summary_stats
 from model_utils import predict_category, get_categories
 from styles import SHADCN_ZINC_CSS, CHART_THEME
 from auth_utils import get_google_auth_url, exchange_code_for_user
+
+
+def clear_query_params():
+    """Safely clear query params across Streamlit versions."""
+    try:
+        st.query_params.clear()
+    except Exception:
+        for key in list(st.query_params.keys()):
+            del st.query_params[key]
+
 
 # ----------------- Page Configuration -----------------
 st.set_page_config(
@@ -54,11 +57,11 @@ if "code" in st.query_params:
             st.session_state.current_user = user_info["email"]
             st.session_state.user_name = user_info.get("name", user_info["email"])
             st.session_state.user_picture = user_info.get("picture", "")
-            st.query_params.clear()
+            clear_query_params()
             st.rerun()
         else:
             st.error(f"Google Authentication failed: {user_info.get('error')}")
-            st.query_params.clear()
+            clear_query_params()
 
 # ----------------- Login Screen (If Not Signed In) -----------------
 if not st.session_state.current_user:
@@ -155,7 +158,7 @@ with nav_col_right:
         st.session_state.current_user = None
         st.session_state.user_name = None
         st.session_state.user_picture = None
-        st.query_params.clear()
+        clear_query_params()
         st.rerun()
 
 st.markdown("<hr style='border: none; border-top: 1px solid #27272a; margin: 8px 0 20px 0;'>", unsafe_allow_html=True)
