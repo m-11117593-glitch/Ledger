@@ -23,9 +23,20 @@ html, body, [class*="css"], .stApp {
     -webkit-font-smoothing: antialiased;
 }
 
+/* ---------------- Remove Default Streamlit Header Bar ---------------- */
+header[data-testid="stHeader"], .stAppHeader, header {
+    display: none !important;
+    height: 0px !important;
+    visibility: hidden !important;
+}
+
+#MainMenu, footer {
+    visibility: hidden !important;
+}
+
 /* Page container */
 .block-container {
-    padding-top: 1.5rem !important;
+    padding-top: 2rem !important;
     padding-bottom: 3rem !important;
     max-width: 1180px !important;
 }
